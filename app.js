@@ -139,6 +139,7 @@ const elements = {
     statsOvertime: document.getElementById('stats-overtime'),
     statsOvertimeCard: document.getElementById('stats-overtime-card'),
     statsChart: document.getElementById('stats-chart'),
+    statsCategory: document.getElementById('stats-category'),
 
     // Note and category
     workNote: document.getElementById('work-note'),
@@ -405,11 +406,18 @@ function clearState() {
 }
 
 // ===== STATISTICS FUNCTIONS =====
-function calculateStatistics(period = 'month') {
+// Current stats filter state
+let statsState = {
+    period: 'month',
+    categoryId: 'all'
+};
+
+function calculateStatistics(period = 'month', categoryId = 'all') {
     const history = getHistory();
     const now = new Date();
 
-    const filtered = history.filter(entry => {
+    // Filter by period
+    let filtered = history.filter(entry => {
         const entryDate = new Date(entry.workStartTime);
         if (period === 'week') {
             const weekAgo = new Date(now - 7 * 24 * 60 * 60 * 1000);
@@ -423,11 +431,35 @@ function calculateStatistics(period = 'month') {
         return true; // 'all'
     });
 
+    // Filter by category if not 'all'
+    if (categoryId !== 'all') {
+        filtered = filtered.filter(entry => entry.categoryId === categoryId);
+    }
+
     const totalWorkMs = filtered.reduce((sum, e) => sum + (e.totalWorkTimeMs || 0), 0);
     const totalBreakMs = filtered.reduce((sum, e) => sum + (e.totalBreakTimeMs || 0), 0);
     const avgWorkMs = filtered.length > 0 ? totalWorkMs / filtered.length : 0;
     const standardMs = filtered.length * settings.dailyNorm * 60 * 60 * 1000;
     const overtime = totalWorkMs - standardMs;
+
+    // Calculate category breakdown for "all" view
+    const categoryBreakdown = {};
+    if (categoryId === 'all') {
+        filtered.forEach(entry => {
+            const catId = entry.categoryId || 'default';
+            if (!categoryBreakdown[catId]) {
+                categoryBreakdown[catId] = {
+                    id: catId,
+                    name: entry.categoryName || 'Ogólne',
+                    color: entry.categoryColor || '#6366f1',
+                    totalMs: 0,
+                    count: 0
+                };
+            }
+            categoryBreakdown[catId].totalMs += entry.totalWorkTimeMs || 0;
+            categoryBreakdown[catId].count++;
+        });
+    }
 
     return {
         daysWorked: filtered.length,
@@ -440,16 +472,33 @@ function calculateStatistics(period = 'month') {
         overtimeMs: overtime,
         overtime: formatDurationReadable(Math.abs(overtime)),
         isOvertime: overtime > 0,
+        categoryBreakdown: categoryBreakdown,
+        showAllCategories: categoryId === 'all',
         dailyData: filtered.map(e => ({
             date: new Date(e.workStartTime),
             workMs: e.totalWorkTimeMs || 0,
-            breakMs: e.totalBreakTimeMs || 0
+            breakMs: e.totalBreakTimeMs || 0,
+            categoryId: e.categoryId || 'default',
+            categoryName: e.categoryName || 'Ogólne',
+            categoryColor: e.categoryColor || '#6366f1'
         })).reverse() // chronological order
     };
 }
 
-function renderStatistics(period = 'month') {
-    const stats = calculateStatistics(period);
+function renderStatsCategorySelect() {
+    if (!elements.statsCategory) return;
+
+    elements.statsCategory.innerHTML = '<option value="all">Wszystkie kategorie</option>' +
+        categories.map(c =>
+            `<option value="${c.id}" ${c.id === statsState.categoryId ? 'selected' : ''}>${c.name}</option>`
+        ).join('');
+}
+
+function renderStatistics(period = 'month', categoryId = 'all') {
+    statsState.period = period;
+    statsState.categoryId = categoryId;
+
+    const stats = calculateStatistics(period, categoryId);
 
     if (elements.statsDaysWorked) {
         elements.statsDaysWorked.textContent = stats.daysWorked;
@@ -471,10 +520,10 @@ function renderStatistics(period = 'month') {
         elements.statsOvertimeCard.classList.toggle('overtime-negative', !stats.isOvertime);
     }
 
-    renderStatsChart(stats.dailyData);
+    renderStatsChart(stats.dailyData, stats.showAllCategories, stats.categoryBreakdown);
 }
 
-function renderStatsChart(dailyData) {
+function renderStatsChart(dailyData, showAllCategories = false, categoryBreakdown = {}) {
     if (!elements.statsChart) return;
 
     if (dailyData.length === 0) {
@@ -493,9 +542,13 @@ function renderStatsChart(dailyData) {
         const hours = (d.workMs / (1000 * 60 * 60)).toFixed(1);
         const isOverNorm = d.workMs > normMs;
 
+        // Use category color when showing all categories
+        const barColor = showAllCategories ? d.categoryColor : '';
+        const barStyle = barColor ? `background: ${barColor};` : '';
+
         return `
             <div class="chart-bar-container">
-                <div class="chart-bar ${isOverNorm ? 'over-norm' : ''}" style="height: ${heightPercent}%">
+                <div class="chart-bar ${isOverNorm && !showAllCategories ? 'over-norm' : ''}" style="height: ${heightPercent}%; ${barStyle}" title="${d.categoryName}">
                     <span class="chart-bar-value">${hours}h</span>
                 </div>
                 <div class="chart-norm-line" style="bottom: ${normPercent}%"></div>
@@ -504,14 +557,39 @@ function renderStatsChart(dailyData) {
         `;
     }).join('');
 
+    // Build legend based on view mode
+    let legendHtml = '';
+    if (showAllCategories && Object.keys(categoryBreakdown).length > 0) {
+        // Show category legend with totals
+        const categoryLegendItems = Object.values(categoryBreakdown).map(cat => `
+            <span class="legend-item">
+                <span class="legend-color" style="background: ${cat.color}"></span>
+                ${cat.name} (${formatDurationReadable(cat.totalMs)})
+            </span>
+        `).join('');
+
+        legendHtml = `
+            <div class="chart-legend chart-legend-categories">
+                ${categoryLegendItems}
+            </div>
+            <div class="chart-legend">
+                <span class="legend-item"><span class="legend-color norm"></span>Norma (${settings.dailyNorm}h)</span>
+            </div>
+        `;
+    } else {
+        legendHtml = `
+            <div class="chart-legend">
+                <span class="legend-item"><span class="legend-color norm"></span>Norma (${settings.dailyNorm}h)</span>
+                <span class="legend-item"><span class="legend-color over"></span>Nadgodziny</span>
+            </div>
+        `;
+    }
+
     elements.statsChart.innerHTML = `
         <div class="chart-container">
             ${barsHtml}
         </div>
-        <div class="chart-legend">
-            <span class="legend-item"><span class="legend-color norm"></span>Norma (${settings.dailyNorm}h)</span>
-            <span class="legend-item"><span class="legend-color over"></span>Nadgodziny</span>
-        </div>
+        ${legendHtml}
     `;
 }
 
@@ -1529,7 +1607,18 @@ function initEventListeners() {
     // Stats screen events
     if (elements.showStatsBtn) {
         elements.showStatsBtn.addEventListener('click', () => {
-            renderStatistics('month');
+            statsState.period = 'month';
+            statsState.categoryId = 'all';
+            // Reset period buttons
+            elements.statsPeriodBtns.forEach(b => b.classList.remove('active'));
+            const monthBtn = document.querySelector('.period-btn[data-period="month"]');
+            if (monthBtn) monthBtn.classList.add('active');
+            // Populate and reset category selector
+            renderStatsCategorySelect();
+            if (elements.statsCategory) {
+                elements.statsCategory.value = 'all';
+            }
+            renderStatistics('month', 'all');
             showScreen(elements.statsScreen);
         });
     }
@@ -1546,8 +1635,15 @@ function initEventListeners() {
             btn.addEventListener('click', () => {
                 elements.statsPeriodBtns.forEach(b => b.classList.remove('active'));
                 btn.classList.add('active');
-                renderStatistics(btn.dataset.period);
+                renderStatistics(btn.dataset.period, statsState.categoryId);
             });
+        });
+    }
+
+    // Stats category selector
+    if (elements.statsCategory) {
+        elements.statsCategory.addEventListener('change', () => {
+            renderStatistics(statsState.period, elements.statsCategory.value);
         });
     }
 
