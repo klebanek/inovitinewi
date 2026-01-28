@@ -1,6 +1,22 @@
 // ===== STORAGE KEYS =====
 const STORAGE_KEY = 'elmar_work_session';
 const HISTORY_KEY = 'elmar_work_history';
+const SETTINGS_KEY = 'elmar_settings';
+const CATEGORIES_KEY = 'elmar_categories';
+
+// ===== DEFAULT SETTINGS =====
+const DEFAULT_SETTINGS = {
+    dailyNorm: 8, // godziny
+    breakReminderInterval: 120, // minuty (2h)
+    breakReminderEnabled: true
+};
+
+// ===== DEFAULT CATEGORIES =====
+const DEFAULT_CATEGORIES = [
+    { id: 'default', name: 'Ogólne', color: '#6366f1' },
+    { id: 'meeting', name: 'Spotkania', color: '#10b981' },
+    { id: 'project', name: 'Projekt', color: '#f59e0b' }
+];
 
 // ===== STATE =====
 let state = {
@@ -11,7 +27,11 @@ let state = {
     currentBreakStart: null,
     breaks: [],
     timerInterval: null,
-    breakTimerInterval: null
+    breakTimerInterval: null,
+    note: '',
+    categoryId: 'default',
+    breakReminderTimeout: null,
+    lastBreakReminder: null
 };
 
 // Edit state
@@ -24,6 +44,12 @@ let editState = {
 let selectionState = {
     selectedIndices: new Set()
 };
+
+// Settings state
+let settings = { ...DEFAULT_SETTINGS };
+
+// Categories state
+let categories = [...DEFAULT_CATEGORIES];
 
 // ===== DOM ELEMENTS =====
 const elements = {
@@ -97,7 +123,44 @@ const elements = {
     editStartTime: document.getElementById('edit-start-time'),
     editEndTime: document.getElementById('edit-end-time'),
     editBreaksList: document.getElementById('edit-breaks-list'),
-    addBreakBtn: document.getElementById('add-break-btn')
+    addBreakBtn: document.getElementById('add-break-btn'),
+    editNote: document.getElementById('edit-note'),
+    editCategory: document.getElementById('edit-category'),
+
+    // Stats screen
+    statsScreen: document.getElementById('stats-screen'),
+    showStatsBtn: document.getElementById('show-stats-btn'),
+    backFromStatsBtn: document.getElementById('back-from-stats-btn'),
+    statsPeriodBtns: document.querySelectorAll('.period-btn'),
+    statsDaysWorked: document.getElementById('stats-days-worked'),
+    statsTotalWork: document.getElementById('stats-total-work'),
+    statsAvgWork: document.getElementById('stats-avg-work'),
+    statsTotalBreak: document.getElementById('stats-total-break'),
+    statsOvertime: document.getElementById('stats-overtime'),
+    statsOvertimeCard: document.getElementById('stats-overtime-card'),
+    statsChart: document.getElementById('stats-chart'),
+
+    // Note and category
+    workNote: document.getElementById('work-note'),
+    workCategory: document.getElementById('work-category'),
+
+    // Import/Export JSON
+    exportJsonBtn: document.getElementById('export-json-btn'),
+    importJsonBtn: document.getElementById('import-json-btn'),
+    importJsonInput: document.getElementById('import-json-input'),
+
+    // Settings
+    settingsBtn: document.getElementById('settings-btn'),
+    settingsModal: document.getElementById('settings-modal'),
+    closeSettingsBtn: document.getElementById('close-settings-btn'),
+    saveSettingsBtn: document.getElementById('save-settings-btn'),
+    settingsDailyNorm: document.getElementById('settings-daily-norm'),
+    settingsBreakReminder: document.getElementById('settings-break-reminder'),
+    settingsBreakReminderEnabled: document.getElementById('settings-break-reminder-enabled'),
+
+    // Categories management
+    categoriesList: document.getElementById('categories-list'),
+    addCategoryBtn: document.getElementById('add-category-btn')
 };
 
 // ===== LOCAL STORAGE FUNCTIONS =====
@@ -108,7 +171,10 @@ function saveState() {
         workStartTime: state.workStartTime,
         workEndTime: state.workEndTime,
         currentBreakStart: state.currentBreakStart,
-        breaks: state.breaks
+        breaks: state.breaks,
+        note: state.note,
+        categoryId: state.categoryId,
+        lastBreakReminder: state.lastBreakReminder
     };
     localStorage.setItem(STORAGE_KEY, JSON.stringify(dataToSave));
 }
@@ -124,6 +190,9 @@ function loadState() {
             state.workEndTime = data.workEndTime || null;
             state.currentBreakStart = data.currentBreakStart || null;
             state.breaks = data.breaks || [];
+            state.note = data.note || '';
+            state.categoryId = data.categoryId || 'default';
+            state.lastBreakReminder = data.lastBreakReminder || null;
             return true;
         } catch (e) {
             console.error('Error loading state:', e);
@@ -133,8 +202,374 @@ function loadState() {
     return false;
 }
 
+// ===== SETTINGS FUNCTIONS =====
+function loadSettings() {
+    const saved = localStorage.getItem(SETTINGS_KEY);
+    if (saved) {
+        try {
+            settings = { ...DEFAULT_SETTINGS, ...JSON.parse(saved) };
+        } catch (e) {
+            settings = { ...DEFAULT_SETTINGS };
+        }
+    }
+}
+
+function saveSettings() {
+    localStorage.setItem(SETTINGS_KEY, JSON.stringify(settings));
+}
+
+// ===== CATEGORIES FUNCTIONS =====
+function loadCategories() {
+    const saved = localStorage.getItem(CATEGORIES_KEY);
+    if (saved) {
+        try {
+            categories = JSON.parse(saved);
+        } catch (e) {
+            categories = [...DEFAULT_CATEGORIES];
+        }
+    }
+}
+
+function saveCategories() {
+    localStorage.setItem(CATEGORIES_KEY, JSON.stringify(categories));
+}
+
+function getCategoryById(id) {
+    return categories.find(c => c.id === id) || categories[0];
+}
+
+function addCategory(name, color) {
+    const id = 'cat_' + Date.now();
+    categories.push({ id, name, color });
+    saveCategories();
+    return id;
+}
+
+function deleteCategory(id) {
+    if (id === 'default') return;
+    categories = categories.filter(c => c.id !== id);
+    saveCategories();
+}
+
+function renderCategoriesSelect(selectElement, selectedId = 'default') {
+    if (!selectElement) return;
+    selectElement.innerHTML = categories.map(c =>
+        `<option value="${c.id}" ${c.id === selectedId ? 'selected' : ''}>${c.name}</option>`
+    ).join('');
+}
+
+function renderCategoriesList() {
+    if (!elements.categoriesList) return;
+    elements.categoriesList.innerHTML = categories.map(c => `
+        <div class="category-item" data-id="${c.id}">
+            <div class="category-color" style="background: ${c.color}"></div>
+            <span class="category-name">${c.name}</span>
+            ${c.id !== 'default' ? `
+                <button class="delete-category-btn" data-id="${c.id}">
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="16" height="16">
+                        <path d="M18 6L6 18M6 6l12 12"/>
+                    </svg>
+                </button>
+            ` : ''}
+        </div>
+    `).join('');
+
+    // Add delete listeners
+    elements.categoriesList.querySelectorAll('.delete-category-btn').forEach(btn => {
+        btn.addEventListener('click', () => {
+            if (confirm('Czy na pewno chcesz usunąć tę kategorię?')) {
+                deleteCategory(btn.dataset.id);
+                renderCategoriesList();
+                renderCategoriesSelect(elements.workCategory, state.categoryId);
+                renderCategoriesSelect(elements.editCategory);
+            }
+        });
+    });
+}
+
+// ===== JSON IMPORT/EXPORT =====
+function exportDatabaseJSON() {
+    const data = {
+        version: '2.0',
+        exportDate: new Date().toISOString(),
+        history: getHistory(),
+        settings: settings,
+        categories: categories,
+        currentSession: JSON.parse(localStorage.getItem(STORAGE_KEY) || 'null')
+    };
+
+    const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement('a');
+    link.href = url;
+    link.download = `elmar_backup_${new Date().toISOString().split('T')[0]}.json`;
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+    URL.revokeObjectURL(url);
+
+    showToast('Baza danych wyeksportowana pomyślnie!', 'success');
+}
+
+function importDatabaseJSON(file) {
+    return new Promise((resolve, reject) => {
+        const reader = new FileReader();
+        reader.onload = (e) => {
+            try {
+                const data = JSON.parse(e.target.result);
+
+                // Validate structure
+                if (!data.history && !data.settings && !data.categories) {
+                    throw new Error('Nieprawidłowy format pliku');
+                }
+
+                // Import history
+                if (data.history && Array.isArray(data.history)) {
+                    const existingHistory = getHistory();
+                    const mergedHistory = [...data.history];
+
+                    // Merge with existing (avoid duplicates by timestamp)
+                    existingHistory.forEach(entry => {
+                        const exists = mergedHistory.some(e =>
+                            e.workStartTime === entry.workStartTime &&
+                            e.workEndTime === entry.workEndTime
+                        );
+                        if (!exists) {
+                            mergedHistory.push(entry);
+                        }
+                    });
+
+                    // Sort by date (newest first)
+                    mergedHistory.sort((a, b) => b.workStartTime - a.workStartTime);
+
+                    // Limit to 100 entries
+                    if (mergedHistory.length > 100) {
+                        mergedHistory.length = 100;
+                    }
+
+                    saveHistory(mergedHistory);
+                }
+
+                // Import settings
+                if (data.settings) {
+                    settings = { ...DEFAULT_SETTINGS, ...data.settings };
+                    saveSettings();
+                }
+
+                // Import categories
+                if (data.categories && Array.isArray(data.categories)) {
+                    // Merge categories
+                    data.categories.forEach(cat => {
+                        const exists = categories.some(c => c.id === cat.id);
+                        if (!exists) {
+                            categories.push(cat);
+                        }
+                    });
+                    saveCategories();
+                }
+
+                showToast(`Zaimportowano ${data.history?.length || 0} wpisów!`, 'success');
+                resolve(data);
+            } catch (err) {
+                showToast('Błąd importu: ' + err.message, 'error');
+                reject(err);
+            }
+        };
+        reader.onerror = () => reject(new Error('Błąd odczytu pliku'));
+        reader.readAsText(file);
+    });
+}
+
+// ===== TOAST NOTIFICATIONS =====
+function showToast(message, type = 'info') {
+    const toast = document.createElement('div');
+    toast.className = `toast toast-${type}`;
+    toast.textContent = message;
+    document.body.appendChild(toast);
+
+    setTimeout(() => toast.classList.add('show'), 10);
+    setTimeout(() => {
+        toast.classList.remove('show');
+        setTimeout(() => toast.remove(), 300);
+    }, 3000);
+}
+
 function clearState() {
     localStorage.removeItem(STORAGE_KEY);
+}
+
+// ===== STATISTICS FUNCTIONS =====
+function calculateStatistics(period = 'month') {
+    const history = getHistory();
+    const now = new Date();
+
+    const filtered = history.filter(entry => {
+        const entryDate = new Date(entry.workStartTime);
+        if (period === 'week') {
+            const weekAgo = new Date(now - 7 * 24 * 60 * 60 * 1000);
+            return entryDate >= weekAgo;
+        } else if (period === 'month') {
+            return entryDate.getMonth() === now.getMonth() &&
+                   entryDate.getFullYear() === now.getFullYear();
+        } else if (period === 'year') {
+            return entryDate.getFullYear() === now.getFullYear();
+        }
+        return true; // 'all'
+    });
+
+    const totalWorkMs = filtered.reduce((sum, e) => sum + (e.totalWorkTimeMs || 0), 0);
+    const totalBreakMs = filtered.reduce((sum, e) => sum + (e.totalBreakTimeMs || 0), 0);
+    const avgWorkMs = filtered.length > 0 ? totalWorkMs / filtered.length : 0;
+    const standardMs = filtered.length * settings.dailyNorm * 60 * 60 * 1000;
+    const overtime = totalWorkMs - standardMs;
+
+    return {
+        daysWorked: filtered.length,
+        totalWorkTimeMs: totalWorkMs,
+        totalWorkTime: formatDurationReadable(totalWorkMs),
+        totalBreakTimeMs: totalBreakMs,
+        totalBreakTime: formatDurationReadable(totalBreakMs),
+        avgWorkTimeMs: avgWorkMs,
+        avgWorkTime: formatDurationReadable(avgWorkMs),
+        overtimeMs: overtime,
+        overtime: formatDurationReadable(Math.abs(overtime)),
+        isOvertime: overtime > 0,
+        dailyData: filtered.map(e => ({
+            date: new Date(e.workStartTime),
+            workMs: e.totalWorkTimeMs || 0,
+            breakMs: e.totalBreakTimeMs || 0
+        })).reverse() // chronological order
+    };
+}
+
+function renderStatistics(period = 'month') {
+    const stats = calculateStatistics(period);
+
+    if (elements.statsDaysWorked) {
+        elements.statsDaysWorked.textContent = stats.daysWorked;
+    }
+    if (elements.statsTotalWork) {
+        elements.statsTotalWork.textContent = stats.totalWorkTime;
+    }
+    if (elements.statsAvgWork) {
+        elements.statsAvgWork.textContent = stats.avgWorkTime;
+    }
+    if (elements.statsTotalBreak) {
+        elements.statsTotalBreak.textContent = stats.totalBreakTime;
+    }
+    if (elements.statsOvertime) {
+        elements.statsOvertime.textContent = (stats.isOvertime ? '+' : '-') + stats.overtime;
+    }
+    if (elements.statsOvertimeCard) {
+        elements.statsOvertimeCard.classList.toggle('overtime-positive', stats.isOvertime);
+        elements.statsOvertimeCard.classList.toggle('overtime-negative', !stats.isOvertime);
+    }
+
+    renderStatsChart(stats.dailyData);
+}
+
+function renderStatsChart(dailyData) {
+    if (!elements.statsChart) return;
+
+    if (dailyData.length === 0) {
+        elements.statsChart.innerHTML = '<p class="no-data-message">Brak danych do wyświetlenia</p>';
+        return;
+    }
+
+    const maxMs = Math.max(...dailyData.map(d => d.workMs), settings.dailyNorm * 60 * 60 * 1000);
+    const normMs = settings.dailyNorm * 60 * 60 * 1000;
+
+    const barsHtml = dailyData.slice(-14).map(d => {
+        const heightPercent = (d.workMs / maxMs) * 100;
+        const normPercent = (normMs / maxMs) * 100;
+        const dayName = d.date.toLocaleDateString('pl-PL', { weekday: 'short' });
+        const dayNum = d.date.getDate();
+        const hours = (d.workMs / (1000 * 60 * 60)).toFixed(1);
+        const isOverNorm = d.workMs > normMs;
+
+        return `
+            <div class="chart-bar-container">
+                <div class="chart-bar ${isOverNorm ? 'over-norm' : ''}" style="height: ${heightPercent}%">
+                    <span class="chart-bar-value">${hours}h</span>
+                </div>
+                <div class="chart-norm-line" style="bottom: ${normPercent}%"></div>
+                <div class="chart-label">${dayNum}<br>${dayName}</div>
+            </div>
+        `;
+    }).join('');
+
+    elements.statsChart.innerHTML = `
+        <div class="chart-container">
+            ${barsHtml}
+        </div>
+        <div class="chart-legend">
+            <span class="legend-item"><span class="legend-color norm"></span>Norma (${settings.dailyNorm}h)</span>
+            <span class="legend-item"><span class="legend-color over"></span>Nadgodziny</span>
+        </div>
+    `;
+}
+
+// ===== BREAK REMINDER FUNCTIONS =====
+function scheduleBreakReminder() {
+    clearBreakReminder();
+
+    if (!settings.breakReminderEnabled || !state.isWorking || state.isOnBreak) {
+        return;
+    }
+
+    const intervalMs = settings.breakReminderInterval * 60 * 1000;
+    const now = Date.now();
+
+    // Calculate when the last break ended or work started
+    let lastBreakEnd = state.workStartTime;
+    if (state.breaks.length > 0) {
+        lastBreakEnd = Math.max(...state.breaks.map(b => b.end));
+    }
+
+    const timeSinceBreak = now - lastBreakEnd;
+    const timeUntilReminder = intervalMs - timeSinceBreak;
+
+    if (timeUntilReminder <= 0) {
+        // Should remind now
+        showBreakReminder();
+    } else {
+        // Schedule for later
+        state.breakReminderTimeout = setTimeout(showBreakReminder, timeUntilReminder);
+    }
+}
+
+function clearBreakReminder() {
+    if (state.breakReminderTimeout) {
+        clearTimeout(state.breakReminderTimeout);
+        state.breakReminderTimeout = null;
+    }
+}
+
+function showBreakReminder() {
+    if (!state.isWorking || state.isOnBreak) return;
+
+    // Check if browser supports notifications
+    if ('Notification' in window && Notification.permission === 'granted') {
+        new Notification('Elmar - Przypomnienie', {
+            body: 'Czas na przerwę! Pracujesz już ' + settings.breakReminderInterval + ' minut.',
+            icon: 'icon-192.png',
+            tag: 'break-reminder'
+        });
+    }
+
+    // Also show in-app toast
+    showToast('Czas na przerwę! Pracujesz już ' + settings.breakReminderInterval + ' minut.', 'warning');
+
+    // Schedule next reminder
+    state.lastBreakReminder = Date.now();
+    saveState();
+    scheduleBreakReminder();
+}
+
+function requestNotificationPermission() {
+    if ('Notification' in window && Notification.permission === 'default') {
+        Notification.requestPermission();
+    }
 }
 
 // ===== HISTORY FUNCTIONS =====
@@ -271,6 +706,23 @@ function renderHistory() {
 
         const isChecked = selectionState.selectedIndices.has(index);
 
+        // Category badge
+        const categoryColor = entry.categoryColor || '#6366f1';
+        const categoryName = entry.categoryName || 'Ogólne';
+
+        // Note preview
+        const notePreview = entry.note ? `
+            <div class="history-item-note">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="14" height="14">
+                    <path d="M14 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V8z"/>
+                    <polyline points="14 2 14 8 20 8"/>
+                    <line x1="16" y1="13" x2="8" y2="13"/>
+                    <line x1="16" y1="17" x2="8" y2="17"/>
+                </svg>
+                ${entry.note.length > 50 ? entry.note.substring(0, 50) + '...' : entry.note}
+            </div>
+        ` : '';
+
         wrapper.innerHTML = `
             <div class="history-item-checkbox">
                 <label class="checkbox-container">
@@ -281,7 +733,10 @@ function renderHistory() {
             <div class="history-item-content">
                 <div class="history-item">
                     <div class="history-item-header">
-                        <span class="history-item-date">${dateStr}</span>
+                        <div class="history-item-title">
+                            <span class="history-item-date">${dateStr}</span>
+                            <span class="history-item-category" style="background: ${categoryColor}">${categoryName}</span>
+                        </div>
                         <div style="display: flex; align-items: center;">
                             <span class="history-item-total">${entry.totalWorkTime}</span>
                             <button class="history-edit-btn" data-index="${index}" title="Edytuj">
@@ -315,6 +770,7 @@ function renderHistory() {
                         </span>
                         ` : ''}
                     </div>
+                    ${notePreview}
                     ${modifiedHtml}
                 </div>
             </div>
@@ -471,6 +927,16 @@ function openEditModal(index) {
     elements.editStartTime.value = entry.startTime;
     elements.editEndTime.value = entry.endTime;
 
+    // Set note
+    if (elements.editNote) {
+        elements.editNote.value = entry.note || '';
+    }
+
+    // Set category
+    if (elements.editCategory) {
+        renderCategoriesSelect(elements.editCategory, entry.categoryId || 'default');
+    }
+
     // Set breaks
     editState.editBreaks = entry.breaks ? entry.breaks.map(b => ({
         start: new Date(b.start),
@@ -602,6 +1068,11 @@ function saveEdit() {
     const totalTimeMs = newEndTime.getTime() - newStartTime.getTime();
     const totalWorkTimeMs = totalTimeMs - totalBreakTimeMs;
 
+    // Get note and category
+    const note = elements.editNote ? elements.editNote.value : (entry.note || '');
+    const categoryId = elements.editCategory ? elements.editCategory.value : (entry.categoryId || 'default');
+    const category = getCategoryById(categoryId);
+
     const updatedEntry = {
         ...entry,
         workStartTime: newStartTime.getTime(),
@@ -614,6 +1085,10 @@ function saveEdit() {
         totalBreakTimeMs: totalBreakTimeMs,
         totalWorkTime: formatDurationReadable(totalWorkTimeMs),
         totalWorkTimeMs: totalWorkTimeMs,
+        note: note,
+        categoryId: categoryId,
+        categoryName: category.name,
+        categoryColor: category.color,
         modifiedAt: Date.now()
     };
 
@@ -683,6 +1158,9 @@ function showScreen(screen) {
     elements.timerScreen.classList.remove('active');
     elements.summaryScreen.classList.remove('active');
     elements.historyScreen.classList.remove('active');
+    if (elements.statsScreen) {
+        elements.statsScreen.classList.remove('active');
+    }
     screen.classList.add('active');
 }
 
@@ -791,9 +1269,14 @@ function startWork() {
     state.currentBreakStart = null;
     state.breaks = [];
     state.isOnBreak = false;
+    state.note = '';
+    state.categoryId = elements.workCategory ? elements.workCategory.value : 'default';
+    state.lastBreakReminder = null;
 
     saveState();
     updateUIForWorkState();
+    scheduleBreakReminder();
+    requestNotificationPermission();
 }
 
 function endWork() {
@@ -810,8 +1293,16 @@ function endWork() {
     state.workEndTime = Date.now();
 
     stopTimers();
+    clearBreakReminder();
+
+    // Get note from input if available
+    if (elements.workNote) {
+        state.note = elements.workNote.value || '';
+    }
 
     const totalWorkTime = calculateWorkTime();
+    const category = getCategoryById(state.categoryId);
+
     const historyEntry = {
         workStartTime: state.workStartTime,
         workEndTime: state.workEndTime,
@@ -822,7 +1313,11 @@ function endWork() {
         breaks: state.breaks,
         breaksCount: state.breaks.length,
         totalBreakTime: formatDurationReadable(calculateTotalBreakTime()),
-        totalBreakTimeMs: calculateTotalBreakTime()
+        totalBreakTimeMs: calculateTotalBreakTime(),
+        note: state.note,
+        categoryId: state.categoryId,
+        categoryName: category.name,
+        categoryColor: category.color
     };
     saveToHistory(historyEntry);
 
@@ -849,6 +1344,7 @@ function startBreak() {
 
     state.breakTimerInterval = setInterval(updateBreakTimerDisplay, 1000);
 
+    clearBreakReminder();
     saveState();
 }
 
@@ -878,6 +1374,7 @@ function endBreak() {
 
     updateBreaksList();
     saveState();
+    scheduleBreakReminder();
 }
 
 // ===== SUMMARY =====
@@ -914,6 +1411,7 @@ function showSummary() {
 
 function resetApp() {
     stopTimers();
+    clearBreakReminder();
 
     state.isWorking = false;
     state.isOnBreak = false;
@@ -921,6 +1419,8 @@ function resetApp() {
     state.workEndTime = null;
     state.currentBreakStart = null;
     state.breaks = [];
+    state.note = '';
+    state.categoryId = 'default';
 
     clearState();
 
@@ -930,6 +1430,14 @@ function resetApp() {
 
     elements.breakTimerSection.style.display = 'none';
     elements.breaksList.style.display = 'none';
+
+    // Reset note and category inputs
+    if (elements.workNote) {
+        elements.workNote.value = '';
+    }
+    if (elements.workCategory) {
+        renderCategoriesSelect(elements.workCategory, 'default');
+    }
 
     updateDates();
 
@@ -975,6 +1483,147 @@ function initEventListeners() {
 
     // Close modal on backdrop click
     elements.editModal.querySelector('.modal-backdrop').addEventListener('click', closeEditModal);
+
+    // Stats screen events
+    if (elements.showStatsBtn) {
+        elements.showStatsBtn.addEventListener('click', () => {
+            renderStatistics('month');
+            showScreen(elements.statsScreen);
+        });
+    }
+
+    if (elements.backFromStatsBtn) {
+        elements.backFromStatsBtn.addEventListener('click', () => {
+            showScreen(elements.welcomeScreen);
+        });
+    }
+
+    // Stats period buttons
+    if (elements.statsPeriodBtns) {
+        elements.statsPeriodBtns.forEach(btn => {
+            btn.addEventListener('click', () => {
+                elements.statsPeriodBtns.forEach(b => b.classList.remove('active'));
+                btn.classList.add('active');
+                renderStatistics(btn.dataset.period);
+            });
+        });
+    }
+
+    // JSON Import/Export
+    if (elements.exportJsonBtn) {
+        elements.exportJsonBtn.addEventListener('click', exportDatabaseJSON);
+    }
+
+    if (elements.importJsonInput) {
+        elements.importJsonInput.addEventListener('change', async (e) => {
+            const file = e.target.files[0];
+            if (file) {
+                try {
+                    await importDatabaseJSON(file);
+                    renderHistory();
+                    renderCategoriesSelect(elements.workCategory, state.categoryId);
+                } catch (err) {
+                    console.error('Import error:', err);
+                }
+                e.target.value = ''; // Reset input
+            }
+        });
+    }
+
+    // Settings modal
+    if (elements.settingsBtn) {
+        elements.settingsBtn.addEventListener('click', openSettingsModal);
+    }
+
+    if (elements.closeSettingsBtn) {
+        elements.closeSettingsBtn.addEventListener('click', closeSettingsModal);
+    }
+
+    if (elements.saveSettingsBtn) {
+        elements.saveSettingsBtn.addEventListener('click', saveSettingsFromModal);
+    }
+
+    if (elements.settingsModal) {
+        const backdrop = elements.settingsModal.querySelector('.modal-backdrop');
+        if (backdrop) {
+            backdrop.addEventListener('click', closeSettingsModal);
+        }
+    }
+
+    // Add category button
+    if (elements.addCategoryBtn) {
+        elements.addCategoryBtn.addEventListener('click', () => {
+            const name = prompt('Nazwa kategorii:');
+            if (name && name.trim()) {
+                const color = '#' + Math.floor(Math.random()*16777215).toString(16).padStart(6, '0');
+                addCategory(name.trim(), color);
+                renderCategoriesList();
+                renderCategoriesSelect(elements.workCategory, state.categoryId);
+                renderCategoriesSelect(elements.editCategory);
+            }
+        });
+    }
+
+    // Work note auto-save
+    if (elements.workNote) {
+        elements.workNote.addEventListener('input', () => {
+            state.note = elements.workNote.value;
+            saveState();
+        });
+    }
+
+    // Work category change
+    if (elements.workCategory) {
+        elements.workCategory.addEventListener('change', () => {
+            state.categoryId = elements.workCategory.value;
+            saveState();
+        });
+    }
+}
+
+// ===== SETTINGS MODAL FUNCTIONS =====
+function openSettingsModal() {
+    if (!elements.settingsModal) return;
+
+    if (elements.settingsDailyNorm) {
+        elements.settingsDailyNorm.value = settings.dailyNorm;
+    }
+    if (elements.settingsBreakReminder) {
+        elements.settingsBreakReminder.value = settings.breakReminderInterval;
+    }
+    if (elements.settingsBreakReminderEnabled) {
+        elements.settingsBreakReminderEnabled.checked = settings.breakReminderEnabled;
+    }
+
+    renderCategoriesList();
+    elements.settingsModal.classList.add('active');
+}
+
+function closeSettingsModal() {
+    if (elements.settingsModal) {
+        elements.settingsModal.classList.remove('active');
+    }
+}
+
+function saveSettingsFromModal() {
+    if (elements.settingsDailyNorm) {
+        settings.dailyNorm = parseFloat(elements.settingsDailyNorm.value) || 8;
+    }
+    if (elements.settingsBreakReminder) {
+        settings.breakReminderInterval = parseInt(elements.settingsBreakReminder.value) || 120;
+    }
+    if (elements.settingsBreakReminderEnabled) {
+        settings.breakReminderEnabled = elements.settingsBreakReminderEnabled.checked;
+    }
+
+    saveSettings();
+    closeSettingsModal();
+    showToast('Ustawienia zapisane!', 'success');
+
+    // Reschedule break reminder if working
+    if (state.isWorking) {
+        scheduleBreakReminder();
+    }
 }
 
 // ===== RESTORE SESSION =====
@@ -986,7 +1635,16 @@ function restoreSession() {
         const today = new Date().toDateString();
 
         if (savedDate === today) {
+            // Restore note and category to UI
+            if (elements.workNote) {
+                elements.workNote.value = state.note || '';
+            }
+            if (elements.workCategory) {
+                renderCategoriesSelect(elements.workCategory, state.categoryId);
+            }
+
             updateUIForWorkState();
+            scheduleBreakReminder();
             return true;
         } else {
             clearState();
@@ -996,6 +1654,8 @@ function restoreSession() {
             state.workEndTime = null;
             state.currentBreakStart = null;
             state.breaks = [];
+            state.note = '';
+            state.categoryId = 'default';
         }
     }
 
@@ -1004,8 +1664,15 @@ function restoreSession() {
 
 // ===== INITIALIZATION =====
 function init() {
+    // Load settings and categories
+    loadSettings();
+    loadCategories();
+
     updateDates();
     initEventListeners();
+
+    // Initialize category selects
+    renderCategoriesSelect(elements.workCategory, state.categoryId);
 
     const restored = restoreSession();
 
@@ -1014,6 +1681,13 @@ function init() {
     }
 
     setInterval(updateDates, 60000);
+
+    // Register service worker for PWA
+    if ('serviceWorker' in navigator) {
+        navigator.serviceWorker.register('sw.js')
+            .then(reg => console.log('Service Worker registered'))
+            .catch(err => console.log('Service Worker registration failed:', err));
+    }
 }
 
 document.addEventListener('DOMContentLoaded', init);
