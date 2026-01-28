@@ -160,7 +160,13 @@ const elements = {
 
     // Categories management
     categoriesList: document.getElementById('categories-list'),
-    addCategoryBtn: document.getElementById('add-category-btn')
+    addCategoryBtn: document.getElementById('add-category-btn'),
+
+    // Navigation
+    backFromTimerBtn: document.getElementById('back-from-timer-btn'),
+
+    // Splash screen
+    splashScreen: document.getElementById('splash-screen')
 };
 
 // ===== LOCAL STORAGE FUNCTIONS =====
@@ -1162,6 +1168,11 @@ function showScreen(screen) {
         elements.statsScreen.classList.remove('active');
     }
     screen.classList.add('active');
+
+    // Update start button when showing welcome screen
+    if (screen === elements.welcomeScreen) {
+        updateStartButtonState();
+    }
 }
 
 // ===== TIMER FUNCTIONS =====
@@ -1263,6 +1274,12 @@ function updateUIForWorkState() {
 
 // ===== WORK CONTROLS =====
 function startWork() {
+    // If already working, just go back to timer screen
+    if (state.isWorking) {
+        updateUIForWorkState();
+        return;
+    }
+
     state.isWorking = true;
     state.workStartTime = Date.now();
     state.workEndTime = null;
@@ -1277,6 +1294,30 @@ function startWork() {
     updateUIForWorkState();
     scheduleBreakReminder();
     requestNotificationPermission();
+}
+
+function updateStartButtonState() {
+    if (!elements.startWorkBtn) return;
+
+    if (state.isWorking) {
+        elements.startWorkBtn.innerHTML = `
+            <svg viewBox="0 0 24 24" fill="currentColor">
+                <polygon points="5,3 19,12 5,21"/>
+            </svg>
+            <span>Kontynuuj pracę</span>
+        `;
+        elements.startWorkBtn.classList.remove('btn-success');
+        elements.startWorkBtn.classList.add('btn-primary');
+    } else {
+        elements.startWorkBtn.innerHTML = `
+            <svg viewBox="0 0 24 24" fill="currentColor">
+                <polygon points="5,3 19,12 5,21"/>
+            </svg>
+            <span>Rozpocznij pracę</span>
+        `;
+        elements.startWorkBtn.classList.remove('btn-primary');
+        elements.startWorkBtn.classList.add('btn-success');
+    }
 }
 
 function endWork() {
@@ -1440,6 +1481,7 @@ function resetApp() {
     }
 
     updateDates();
+    updateStartButtonState();
 
     showScreen(elements.welcomeScreen);
 }
@@ -1579,6 +1621,14 @@ function initEventListeners() {
             saveState();
         });
     }
+
+    // Back from timer button (allows navigation while working)
+    if (elements.backFromTimerBtn) {
+        elements.backFromTimerBtn.addEventListener('click', () => {
+            // Don't stop work, just go to welcome screen
+            showScreen(elements.welcomeScreen);
+        });
+    }
 }
 
 // ===== SETTINGS MODAL FUNCTIONS =====
@@ -1662,6 +1712,17 @@ function restoreSession() {
     return false;
 }
 
+// ===== SPLASH SCREEN =====
+function hideSplashScreen() {
+    if (elements.splashScreen) {
+        elements.splashScreen.classList.add('hidden');
+        // Remove from DOM after transition
+        setTimeout(() => {
+            elements.splashScreen.style.display = 'none';
+        }, 500);
+    }
+}
+
 // ===== INITIALIZATION =====
 function init() {
     // Load settings and categories
@@ -1688,6 +1749,9 @@ function init() {
             .then(reg => console.log('Service Worker registered'))
             .catch(err => console.log('Service Worker registration failed:', err));
     }
+
+    // Hide splash screen after animation completes (2s progress bar + small delay)
+    setTimeout(hideSplashScreen, 2200);
 }
 
 document.addEventListener('DOMContentLoaded', init);
