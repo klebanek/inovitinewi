@@ -1,11 +1,21 @@
-// Elmar Service Worker v2.0
-const CACHE_NAME = 'elmar-cache-v2';
+// Elmar Service Worker v2.0 -> INOVIT Service Worker v1.0
+const CACHE_NAME = 'inovit-cache-v1';
 const OFFLINE_URL = '/';
 
 const urlsToCache = [
     '/',
     '/index.html',
-    '/app.js',
+    '/js/main.js',
+    '/js/config.js',
+    '/js/utils.js',
+    '/js/state.js',
+    '/js/storage.js',
+    '/js/modules/timer.js',
+    '/js/modules/history.js',
+    '/js/modules/statistics.js',
+    '/js/modules/settings.js',
+    '/js/modules/export.js',
+    '/js/modules/ui.js',
     '/style.css',
     '/manifest.json',
     'https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap'
@@ -16,7 +26,7 @@ self.addEventListener('install', event => {
     event.waitUntil(
         caches.open(CACHE_NAME)
             .then(cache => {
-                console.log('Elmar: Caching app shell');
+                console.log('INOVIT: Caching app shell');
                 return cache.addAll(urlsToCache);
             })
             .then(() => self.skipWaiting())
@@ -30,7 +40,7 @@ self.addEventListener('activate', event => {
             return Promise.all(
                 cacheNames.map(cacheName => {
                     if (cacheName !== CACHE_NAME) {
-                        console.log('Elmar: Removing old cache', cacheName);
+                        console.log('INOVIT: Removing old cache', cacheName);
                         return caches.delete(cacheName);
                     }
                 })
@@ -106,7 +116,7 @@ self.addEventListener('push', event => {
     };
 
     event.waitUntil(
-        self.registration.showNotification('Elmar', options)
+        self.registration.showNotification('INOVIT', options)
     );
 });
 
