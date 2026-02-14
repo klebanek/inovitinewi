@@ -1,6 +1,6 @@
 import { state, selectionState, getCategoryById, categories } from '../state.js';
 import { getHistory } from '../storage.js';
-import { formatDate } from '../utils.js';
+import { formatDate, escapeHTML } from '../utils.js';
 
 export const elements = {};
 
@@ -200,6 +200,6 @@ export function toggleSelection(index) {
 export function renderCategoriesSelect(selectElement, selectedId = 'default') {
     if (!selectElement) return;
     selectElement.innerHTML = categories.map(c =>
-        `<option value="${c.id}" ${c.id === selectedId ? 'selected' : ''}>${c.name}</option>`
+        `<option value="${escapeHTML(c.id)}" ${c.id === selectedId ? 'selected' : ''}>${escapeHTML(c.name)}</option>`
     ).join('');
 }

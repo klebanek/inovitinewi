@@ -1,7 +1,7 @@
 import { selectionState, editState, getCategoryById, resetEditState } from '../state.js';
 import { getHistory, deleteFromHistory, updateHistoryEntry } from '../storage.js';
 import { elements, toggleSelection, updateSelectionUI, renderCategoriesSelect } from './ui.js';
-import { formatTime, formatDurationReadable } from '../utils.js';
+import { formatTime, formatDurationReadable, escapeHTML, sanitizeColor } from '../utils.js';
 
 export function renderHistory() {
     const history = getHistory();
@@ -64,7 +64,7 @@ export function renderHistory() {
                     <line x1="16" y1="13" x2="8" y2="13"/>
                     <line x1="16" y1="17" x2="8" y2="17"/>
                 </svg>
-                ${entry.note.length > 50 ? entry.note.substring(0, 50) + '...' : entry.note}
+                ${entry.note.length > 50 ? escapeHTML(entry.note.substring(0, 50)) + '...' : escapeHTML(entry.note)}
             </div>
         ` : '';
 
@@ -80,7 +80,7 @@ export function renderHistory() {
                     <div class="history-item-header">
                         <div class="history-item-title">
                             <span class="history-item-date">${dateStr}</span>
-                            <span class="history-item-category" style="background: ${categoryColor}">${categoryName}</span>
+                            <span class="history-item-category" style="background: ${sanitizeColor(categoryColor)}">${escapeHTML(categoryName)}</span>
                         </div>
                         <div style="display: flex; align-items: center;">
                             <span class="history-item-total">${entry.totalWorkTime}</span>

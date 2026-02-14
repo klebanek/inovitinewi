@@ -1,7 +1,7 @@
 import { getHistory } from '../storage.js';
 import { settings, statsState, categories } from '../state.js';
 import { elements, showScreen } from './ui.js';
-import { formatDurationReadable } from '../utils.js';
+import { formatDurationReadable, escapeHTML, sanitizeColor } from '../utils.js';
 
 export function calculateStatistics(period = 'month', categoryId = 'all') {
     const history = getHistory();
@@ -81,7 +81,7 @@ export function renderStatsCategorySelect() {
 
     elements.statsCategory.innerHTML = '<option value="all">Wszystkie kategorie</option>' +
         categories.map(c =>
-            `<option value="${c.id}" ${c.id === statsState.categoryId ? 'selected' : ''}>${c.name}</option>`
+            `<option value="${escapeHTML(c.id)}" ${c.id === statsState.categoryId ? 'selected' : ''}>${escapeHTML(c.name)}</option>`
         ).join('');
 }
 
@@ -134,12 +134,12 @@ export function renderStatsChart(dailyData, showAllCategories = false, categoryB
         const isOverNorm = d.workMs > normMs;
 
         // Use category color when showing all categories
-        const barColor = showAllCategories ? d.categoryColor : '';
+        const barColor = showAllCategories ? sanitizeColor(d.categoryColor) : '';
         const barStyle = barColor ? `background: ${barColor};` : '';
 
         return `
             <div class="chart-bar-container">
-                <div class="chart-bar ${isOverNorm && !showAllCategories ? 'over-norm' : ''}" style="height: ${heightPercent}%; ${barStyle}" title="${d.categoryName}">
+                <div class="chart-bar ${isOverNorm && !showAllCategories ? 'over-norm' : ''}" style="height: ${heightPercent}%; ${barStyle}" title="${escapeHTML(d.categoryName)}">
                     <span class="chart-bar-value">${hours}h</span>
                 </div>
                 <div class="chart-norm-line" style="bottom: ${normPercent}%"></div>
@@ -154,8 +154,8 @@ export function renderStatsChart(dailyData, showAllCategories = false, categoryB
         // Show category legend with totals
         const categoryLegendItems = Object.values(categoryBreakdown).map(cat => `
             <span class="legend-item">
-                <span class="legend-color" style="background: ${cat.color}"></span>
-                ${cat.name} (${formatDurationReadable(cat.totalMs)})
+                <span class="legend-color" style="background: ${sanitizeColor(cat.color)}"></span>
+                ${escapeHTML(cat.name)} (${formatDurationReadable(cat.totalMs)})
             </span>
         `).join('');
 

@@ -53,3 +53,34 @@ export function formatDateForExcel(timestamp) {
     const date = new Date(timestamp);
     return date.toLocaleDateString('pl-PL', { day: '2-digit', month: '2-digit', year: 'numeric' });
 }
+
+export function escapeHTML(str) {
+    if (!str) return '';
+    return String(str).replace(/[&<>"']/g, function(m) {
+        return {
+            '&': '&amp;',
+            '<': '&lt;',
+            '>': '&gt;',
+            '"': '&quot;',
+            "'": '&#039;'
+        }[m];
+    });
+}
+
+export function sanitizeColor(color) {
+    if (!color || typeof color !== 'string') return '';
+
+    // Validate hex color
+    const hexRegex = /^#([0-9a-fA-F]{3}){1,2}$/;
+    if (hexRegex.test(color)) return color;
+
+    // Validate rgb/rgba
+    const rgbRegex = /^rgba?\((\s*\d+\s*,){2,3}\s*[\d.]+\s*\)$/;
+    if (rgbRegex.test(color)) return color;
+
+    // Validate simple color name (only letters)
+    const nameRegex = /^[a-zA-Z]+$/;
+    if (nameRegex.test(color)) return color;
+
+    return '';
+}

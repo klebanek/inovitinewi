@@ -1,15 +1,15 @@
 import { settings, updateSettings, categories, updateCategories, state } from '../state.js';
 import { saveSettingsToStorage, saveCategoriesToStorage } from '../storage.js';
 import { elements, renderCategoriesSelect } from './ui.js';
-import { showToast } from '../utils.js';
+import { showToast, escapeHTML, sanitizeColor } from '../utils.js';
 import { scheduleBreakReminder } from './timer.js';
 
 export function renderCategoriesList() {
     if (!elements.categoriesList) return;
     elements.categoriesList.innerHTML = categories.map(c => `
-        <div class="category-item" data-id="${c.id}">
-            <div class="category-color" style="background: ${c.color}"></div>
-            <span class="category-name">${c.name}</span>
+        <div class="category-item" data-id="${escapeHTML(c.id)}">
+            <div class="category-color" style="background: ${sanitizeColor(c.color)}"></div>
+            <span class="category-name">${escapeHTML(c.name)}</span>
             ${c.id !== 'default' ? `
                 <button class="delete-category-btn" aria-label="Usuń kategorię" data-id="${c.id}">
                     <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="16" height="16">
