@@ -67,20 +67,21 @@ export function escapeHTML(str) {
     });
 }
 
+const HEX_REGEX = /^#([0-9a-fA-F]{3}){1,2}$/;
+const RGB_REGEX = /^rgba?\((\s*\d+\s*,){2,3}\s*[\d.]+\s*\)$/;
+const NAME_REGEX = /^[a-zA-Z]+$/;
+
 export function sanitizeColor(color) {
     if (!color || typeof color !== 'string') return '';
 
     // Validate hex color
-    const hexRegex = /^#([0-9a-fA-F]{3}){1,2}$/;
-    if (hexRegex.test(color)) return color;
+    if (HEX_REGEX.test(color)) return color;
 
     // Validate rgb/rgba
-    const rgbRegex = /^rgba?\((\s*\d+\s*,){2,3}\s*[\d.]+\s*\)$/;
-    if (rgbRegex.test(color)) return color;
+    if (RGB_REGEX.test(color)) return color;
 
     // Validate simple color name (only letters)
-    const nameRegex = /^[a-zA-Z]+$/;
-    if (nameRegex.test(color)) return color;
+    if (NAME_REGEX.test(color)) return color;
 
     return '';
 }
